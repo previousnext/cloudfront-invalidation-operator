@@ -22,8 +22,14 @@ type Invalidation struct {
 }
 
 type InvalidationSpec struct {
-	// Fill me
+	ConfigMap string `json:"configMap"`
+	Path      string `json:"path"`
 }
+
+type Phase string
+
+const PhaseCompleted Phase = "Completed"
+
 type InvalidationStatus struct {
-	// Fill me
+	Phase Phase `json:"phase"`
 }

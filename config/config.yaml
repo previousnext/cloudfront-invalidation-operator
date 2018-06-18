@@ -1,0 +1,3 @@
+apiVersion: cloudfront.skpr.io/v1alpha1
+kind: Invalidation
+projectName: cloudfront-invalidation-operator

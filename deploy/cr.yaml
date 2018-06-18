@@ -1,0 +1,4 @@
+apiVersion: "cloudfront.skpr.io/v1alpha1"
+kind: "Invalidation"
+metadata:
+  name: "example"

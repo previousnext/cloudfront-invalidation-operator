@@ -11,7 +11,6 @@ import (
 	"github.com/operator-framework/operator-sdk/pkg/sdk"
 	"github.com/pkg/errors"
 	"github.com/prometheus/common/log"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -22,10 +21,12 @@ import (
 const (
 	// ConfigDistributionID used for looking up ConfigMap value.
 	ConfigDistributionID = "cloudfront.distribution.id"
-	// ConfigUserID used for looking up ConfigMap value.
-	ConfigUserID = "cloudfront.iam.id"
-	// ConfigUserSecret used for looking up ConfigMap value.
-	ConfigUserSecret = "cloudfront.iam.secret"
+	// ConfigCredentialID used for looking up ConfigMap value.
+	ConfigCredentialID = "cloudfront.credential.id"
+	// ConfigCredentialAccess used for looking up ConfigMap value.
+	ConfigCredentialAccess = "cloudfront.credential.access"
+	// StatusCompleted identifies an invalidation has been completed.
+	StatusCompleted = "Completed"
 )
 
 // NewHandler to react to object events.
@@ -63,28 +64,30 @@ func invalidate(cr *v1alpha1.Invalidation) error {
 
 	log.With("namespace", cr.ObjectMeta.Namespace).With("name", cr.ObjectMeta.Name).Infoln("Loading ConfigMap")
 
-	configmap, err := clientset.CoreV1().ConfigMaps(cr.ObjectMeta.Namespace).Get(cr.Spec.ConfigMap, metav1.GetOptions{})
+	configMap, err := clientset.CoreV1().ConfigMaps(cr.ObjectMeta.Namespace).Get(cr.Spec.ConfigMap, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrap(err, "failed to load ConfigMap")
 	}
 
-	distribution, err := getConfig(ConfigDistributionID, configmap)
-	if err != nil {
-		return errors.Wrap(err, "distribution not found")
+	// Validate ConfigMap has all the values we require.
+	if _, found := configMap.Data[ConfigDistributionID]; !found {
+		return errors.New("distribution not found, skipping")
+	}
+	if _, found := configMap.Data[ConfigCredentialID]; !found {
+		return errors.New("credential not found: id, skipping")
+	}
+	if _, found := configMap.Data[ConfigCredentialAccess]; !found {
+		return errors.New("credential not found: access, skipping")
 	}
 
-	user, err := getConfig(ConfigUserID, configmap)
-	if err != nil {
-		return errors.Wrap(err, "user id not found")
-	}
-
-	secret, err := getConfig(ConfigUserSecret, configmap)
-	if err != nil {
-		return errors.Wrap(err, "user secret not found")
-	}
+	var (
+		distribution     = configMap.Data[ConfigDistributionID]
+		credentialID     = configMap.Data[ConfigCredentialID]
+		credentialAccess = ConfigCredentialAccess
+	)
 
 	svc := cloudfront.New(session.New(&aws.Config{
-		Credentials: credentials.NewStaticCredentials(user, secret, ""),
+		Credentials: credentials.NewStaticCredentials(credentialID, credentialAccess, ""),
 	}))
 
 	log.With("namespace", cr.ObjectMeta.Namespace).With("name", cr.ObjectMeta.Name).Infoln("Submitting invalidation request")
@@ -123,7 +126,7 @@ func invalidate(cr *v1alpha1.Invalidation) error {
 
 		// See documentation for status codes.
 		// https://docs.aws.amazon.com/cli/latest/reference/cloudfront/create-invalidation.html
-		if *resp.Invalidation.Status == "Completed" {
+		if *resp.Invalidation.Status == StatusCompleted {
 			break
 		}
 	}
@@ -131,17 +134,9 @@ func invalidate(cr *v1alpha1.Invalidation) error {
 	log.With("namespace", cr.ObjectMeta.Namespace).With("name", cr.ObjectMeta.Name).Infoln("Invalidation finished")
 
 	// Mark this invalidation as complete.
-	cr.Status.Phase = v1alpha1.PhaseCompleted
-	return sdk.Update(cr)
-}
-
-// Helper function to lookup a ConfigMap value by key.
-func getConfig(want string, cfg *corev1.ConfigMap) (string, error) {
-	for key, value := range cfg.Data {
-		if key == want {
-			return value, nil
-		}
+	cr.Status = v1alpha1.InvalidationStatus{
+		ID:    *create.Invalidation.Id,
+		Phase: StatusCompleted,
 	}
-
-	return "", errors.New("not found")
+	return sdk.Update(cr)
 }

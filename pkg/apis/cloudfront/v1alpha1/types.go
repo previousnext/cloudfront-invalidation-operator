@@ -22,14 +22,16 @@ type Invalidation struct {
 }
 
 type InvalidationSpec struct {
+	// ConfigMap which we get details for:
+	//  * CloudFront Distribution ID
+	//  * IAM Account Key
+	//  * IAM Account Secrets
 	ConfigMap string `json:"configMap"`
-	Path      string `json:"path"`
+	// Path which to invalidate.
+	Path string `json:"path"`
 }
 
-type Phase string
-
-const PhaseCompleted Phase = "Completed"
-
 type InvalidationStatus struct {
-	Phase Phase `json:"phase"`
+	ID    string `json:"id"`
+	Phase string `json:"phase"`
 }
